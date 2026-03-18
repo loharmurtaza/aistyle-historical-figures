@@ -17,8 +17,9 @@ from database import Base
 from rate_limit import limiter
 from routers import (
     health, enhance_prompt, generate,
-    gallery, styles, stats, figures
+    gallery, styles, stats, figures, chatbot
 )
+from services.figures_index import figures_index
 
 logger = get_logger(__name__)
 
@@ -58,6 +59,12 @@ async def lifespan(app: FastAPI):
 
     logger.info("Database tables ready")
 
+    # Build the FAISS figures index at startup (blocking — before requests are served).
+    # This embeds all figures via OpenAI and loads them into RAM.
+    # Subsequent refreshes happen in the background on TTL expiry.
+    logger.info("Building figures index (FAISS + catalog summary)...")
+    figures_index.build_sync()
+
     try:
         await llm.ainvoke(
             [HumanMessage(content="ping")],
@@ -94,6 +101,7 @@ app.include_router(gallery.router, prefix="/api")
 app.include_router(styles.router, prefix="/api")
 app.include_router(figures.router, prefix="/api")
 app.include_router(stats.router, prefix="/api")
+app.include_router(chatbot.router, prefix="/api")
 
 
 if __name__ == "__main__":

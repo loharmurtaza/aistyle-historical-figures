@@ -129,3 +129,16 @@ class FigureCreate(BaseModel):
     origin: Optional[str] = Field(None, max_length=100)
     tags: Optional[str] = Field(None, max_length=500)
     featured: bool = False
+
+
+# ── Chatbot models ────────────────────────────────────────────────────────
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, description="User's chat message")
+    session_id: Optional[str] = Field(
+        None, description="Session ID for conversation history; defaults to 'default'"
+    )
+
+
+class ChatResetResponse(BaseModel):
+    new_session_id: str

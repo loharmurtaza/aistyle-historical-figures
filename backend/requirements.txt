@@ -7,13 +7,16 @@ pydantic-settings==2.3.3
 # LangChain
 langchain==0.2.6
 langchain-openai==0.1.13
-langchain-core==0.2.10
+langchain-core==0.2.22
 langchain-community==0.2.6
 langgraph==0.1.19
 
 # Database
 sqlalchemy==2.0.31
 aiosqlite==0.20.0
+
+# Chatbot / RAG
+faiss-cpu==1.8.0
 
 # Rate limiting
 slowapi==0.1.9
