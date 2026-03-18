@@ -41,6 +41,11 @@ class Settings:
     # Rate limiting (slowapi)
     generate_rate_limit: str = get_str("GENERATE_RATE_LIMIT")
 
+    # Chatbot / RAG
+    openai_embedding_model: str = get_str("OPENAI_EMBEDDING_MODEL")
+    chatbot_retrieval_k: int = get_int("CHATBOT_RETRIEVAL_K")
+    chatbot_index_ttl: int = get_int("CHATBOT_INDEX_TTL")
+
     # LangSmith optional tracing
     langsmith_tracing: bool = get_bool("LANGCHAIN_TRACING_V2", False)
     langsmith_api_key: str = get_str("LANGCHAIN_API_KEY")

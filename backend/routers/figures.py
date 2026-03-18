@@ -7,7 +7,10 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models.figure import Figure
-from models.schemas import FigureCreate, FigureItem, FiguresMetaResponse, FiguresResponse
+from models.schemas import (
+    FigureCreate, FigureItem, FiguresMetaResponse, FiguresResponse,
+)
+from services.figures_index import figures_index
 
 router = APIRouter(tags=["figures"])
 
@@ -169,6 +172,7 @@ def create_figure(payload: FigureCreate, db: Session = Depends(get_db)):
     db.add(figure)
     db.commit()
     db.refresh(figure)
+    figures_index.invalidate()
     return FigureItem.model_validate(figure)
 
 
