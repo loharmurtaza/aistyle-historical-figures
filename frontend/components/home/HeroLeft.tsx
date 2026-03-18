@@ -1,6 +1,6 @@
-import { STATS } from "@/lib/constants";
+import type { Stat } from "@/types";
 
-export default function HeroLeft() {
+export default function HeroLeft({ stats }: { stats: Stat[] }) {
   return (
     <div className="flex-1 bg-cream flex flex-col justify-center px-10 lg:px-20 py-20">
       {/* Label */}
@@ -28,7 +28,7 @@ export default function HeroLeft() {
 
       {/* Stats */}
       <div className="flex gap-10 lg:gap-14">
-        {STATS.map(({ value, label }) => (
+        {stats.map(({ value, label }) => (
           <div key={label}>
             <p className="font-serif text-3xl font-bold text-dark">{value}</p>
             <p className="font-sans text-[11px] text-dark/55 mt-1 tracking-wide">

@@ -11,12 +11,13 @@ from config import settings
 from llm import llm
 from logger import get_logger
 from database import engine
-from models import portrait as _portrait_models  # noqa: F401  # registers ORM
+import models  # noqa: F401  # registers all ORM models
 from models.portrait import Portrait  # noqa: F401
 from database import Base
 from rate_limit import limiter
 from routers import (
-    health, enhance_prompt, generate, gallery, styles
+    health, enhance_prompt, generate,
+    gallery, styles, stats, figures
 )
 
 logger = get_logger(__name__)
@@ -40,11 +41,18 @@ async def lifespan(app: FastAPI):
     # Create DB tables (portraits) if they don't exist yet
     Base.metadata.create_all(bind=engine)
 
-    # Migrate: add image_data column if it doesn't exist yet (SQLite ALTER TABLE)
+    # Migrate: add image_data column if it doesn't exist yet
+    # (SQLite ALTER TABLE)
     with engine.connect() as conn:
-        cols = [row[1] for row in conn.execute(text("PRAGMA table_info(portraits)"))]
+        cols = [
+            row[1] for row in conn.execute(
+                text("PRAGMA table_info(portraits)")
+            )
+        ]
         if "image_data" not in cols:
-            conn.execute(text("ALTER TABLE portraits ADD COLUMN image_data BLOB"))
+            conn.execute(
+                text("ALTER TABLE portraits ADD COLUMN image_data BLOB")
+            )
             conn.commit()
             logger.info("Migrated portraits table: added image_data column")
 
@@ -84,3 +92,10 @@ app.include_router(enhance_prompt.router, prefix="/api")
 app.include_router(generate.router, prefix="/api")
 app.include_router(gallery.router, prefix="/api")
 app.include_router(styles.router, prefix="/api")
+app.include_router(figures.router, prefix="/api")
+app.include_router(stats.router, prefix="/api")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=settings.port, reload=True)

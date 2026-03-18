@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import Image from "next/image";
-import { ArrowRight, ChevronDown } from "lucide-react";
+import { ArrowRight, ChevronDown, Download, Maximize2, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { STYLES } from "@/lib/constants";
 import StyleButton from "@/components/ui/StyleButton";
@@ -25,6 +25,24 @@ export default function PortraitComposer({
   const [error, setError] = useState<string | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
   const [aiEnhance, setAiEnhance] = useState(true);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+
+  const handleDownload = useCallback(async () => {
+    if (!result) return;
+    try {
+      const res = await fetch(result.image_url);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${result.figure_title.replace(/\s+/g, "_")}_${result.style || "portrait"}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // fallback: open in new tab
+      window.open(result.image_url, "_blank");
+    }
+  }, [result]);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
@@ -227,7 +245,7 @@ export default function PortraitComposer({
               </span>
             </motion.div>
 
-            <div className="relative aspect-square w-full max-w-lg mx-auto overflow-hidden">
+            <div className="relative aspect-square w-full max-w-lg mx-auto overflow-hidden group/img">
               {/* Image slides up into view */}
               <motion.div
                 className="relative w-full h-full"
@@ -243,6 +261,26 @@ export default function PortraitComposer({
                   sizes="(max-width: 768px) 100vw, 512px"
                 />
               </motion.div>
+
+              {/* Hover overlay with actions */}
+              <div className="absolute inset-0 bg-dark/0 group-hover/img:bg-dark/30 transition-colors duration-200 flex items-end justify-end p-3 gap-2 opacity-0 group-hover/img:opacity-100">
+                <button
+                  onClick={() => setLightboxOpen(true)}
+                  className="flex items-center gap-1.5 bg-cream/90 hover:bg-cream text-dark text-[11px] font-sans px-3 py-2 transition-colors duration-150"
+                  title="View full size"
+                >
+                  <Maximize2 size={13} />
+                  <span>Full size</span>
+                </button>
+                <button
+                  onClick={handleDownload}
+                  className="flex items-center gap-1.5 bg-gold/90 hover:bg-gold text-cream text-[11px] font-sans px-3 py-2 transition-colors duration-150"
+                  title="Download image"
+                >
+                  <Download size={13} />
+                  <span>Download</span>
+                </button>
+              </div>
             </div>
 
             {/* Collapsible revised prompt */}
@@ -282,6 +320,67 @@ export default function PortraitComposer({
                 </AnimatePresence>
               </motion.div>
             )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Lightbox */}
+      <AnimatePresence>
+        {lightboxOpen && result && (
+          <motion.div
+            key="lightbox"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-dark/80 backdrop-blur-sm p-4"
+            onClick={() => setLightboxOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+              className="relative max-w-4xl w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Top bar */}
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="font-serif text-cream text-lg leading-tight">{result.figure_title}</p>
+                  {result.style && (
+                    <p className="text-[10px] font-sans tracking-[0.18em] text-cream/50 uppercase mt-0.5">{result.style}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleDownload}
+                    className="flex items-center gap-1.5 bg-gold/90 hover:bg-gold text-cream text-[11px] font-sans px-4 py-2 transition-colors duration-150"
+                  >
+                    <Download size={13} />
+                    <span>Download</span>
+                  </button>
+                  <button
+                    onClick={() => setLightboxOpen(false)}
+                    className="p-2 text-cream/60 hover:text-cream transition-colors"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Full image */}
+              <div className="relative w-full aspect-square">
+                <Image
+                  src={result.image_url}
+                  alt={result.figure_title}
+                  fill
+                  className="object-contain"
+                  sizes="(max-width: 1024px) 100vw, 896px"
+                  priority
+                />
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

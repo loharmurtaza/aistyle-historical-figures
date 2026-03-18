@@ -22,7 +22,8 @@ class GenerateRequest(BaseModel):
         True,
         description=(
             "True = AI freely enhances the prompt with creative details. "
-            "False = AI only formats/structures the prompt without adding new ideas."
+            "False = AI only formats/structures the prompt without adding "
+            "new ideas."
         ),
     )
 
@@ -80,3 +81,51 @@ class GalleryResponse(BaseModel):
 
 class StylesResponse(BaseModel):
     styles: list[str]
+
+
+class StatsResponse(BaseModel):
+    portraits_created: int
+    unique_figures: int
+    styles_available: int
+
+
+# ── Figures models ───────────────────────────────────────────────
+
+class FigureItem(BaseModel):
+    id: int
+    name: str
+    slug: str
+    description: Optional[str]
+    born_year: Optional[int]
+    died_year: Optional[int]
+    era: Optional[str]
+    origin: Optional[str]
+    tags: Optional[str]
+    featured: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class FiguresResponse(BaseModel):
+    items: list[FigureItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class FiguresMetaResponse(BaseModel):
+    eras: list[str]
+    origins: list[str]
+    tags: list[str]
+
+
+class FigureCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    born_year: Optional[int] = None
+    died_year: Optional[int] = None
+    era: Optional[str] = Field(None, max_length=100)
+    origin: Optional[str] = Field(None, max_length=100)
+    tags: Optional[str] = Field(None, max_length=500)
+    featured: bool = False

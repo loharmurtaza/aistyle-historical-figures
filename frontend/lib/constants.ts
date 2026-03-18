@@ -1,11 +1,11 @@
 import type { Style, Template, PortraitCardData, Stat } from "@/types";
 
 export const STYLES: Style[] = [
-  { id: "renaissance", label: "Renaissance" },
+  { id: "oil panting", label: "Oil Panting" },
   { id: "anime", label: "Anime" },
   { id: "sketch", label: "Sketch" },
-  { id: "watercolor", label: "Watercolor" },
-  { id: "baroque", label: "Baroque" },
+  { id: "pixel art", label: "Pixel Art" },
+  { id: "cyberpunk", label: "Cyberpunk" },
 ];
 
 export const HERO_PORTRAIT_CARDS: PortraitCardData[] = [

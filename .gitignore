@@ -43,6 +43,10 @@ node_modules/
 *.tsbuildinfo
 next-env.d.ts
 
+# ── Project meta (local only) ─────────────────────────────────────
+ISSUES.md
+COMMIT_MESSAGE.txt
+
 # ── Misc ─────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
