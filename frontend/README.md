@@ -1,23 +1,24 @@
 # ChronoCanvasAI — Frontend
 
-Next.js 14 frontend for AI-powered historical portrait generation. Provides an elegant, animated UI for describing historical figures, selecting art styles, and viewing generated portraits.
+Next.js 14 frontend for AI-powered historical portrait generation and a RAG chatbot. Provides an elegant, animated UI for describing historical figures, selecting art styles, viewing generated portraits, and exploring the figures catalog — all with a floating AI assistant available on every page.
 
 ---
 
 ## Tech Stack
 
-| Technology | Version | Purpose |
-|-------------------|-----------|--------------------------------------------|
-| Next.js           | 14.2.5    | App Router, routing, image optimization    |
-| React             | 18        | UI rendering                               |
-| TypeScript        | 5         | Type safety                                |
-| Tailwind CSS      | 3.4.1     | Utility-first styling with custom theme    |
-| Framer Motion     | 11.3.8    | Animations (image reveal, loading states)  |
-| lucide-react      | 0.400.0   | Icons                                      |
+| Technology    | Version  | Purpose                                             |
+|---------------|----------|-----------------------------------------------------|
+| Next.js       | 14.2.5   | App Router, routing, image optimization             |
+| React         | 18       | UI rendering                                        |
+| TypeScript    | 5        | Type safety                                         |
+| Tailwind CSS  | 3.4.1    | Utility-first styling with custom theme             |
+| Framer Motion | 11.3.8   | Animations (image reveal, loading states)           |
+| react-markdown| 10.1.0   | Renders chatbot responses (bold, lists, paragraphs) |
+| lucide-react  | 0.400.0  | Icons                                               |
 
 **Fonts:** Playfair Display (serif headings) + Inter (body text) via Google Fonts.
 
-**Color Palette:** Custom Tailwind theme — `cream`, `dark`, `gold`, `parchment`, `cyan` — for a historical, elegant aesthetic.
+**Color Palette:** Custom Tailwind theme — `cream`, `dark`, `gold`, `parchment` — for a historical, elegant aesthetic.
 
 ---
 
@@ -26,11 +27,11 @@ Next.js 14 frontend for AI-powered historical portrait generation. Provides an e
 ```
 frontend/
 ├── app/
-│   ├── layout.tsx                      # Root layout — fonts, metadata, Navbar, Footer
-│   ├── page.tsx                        # Home page (HeroSection + PortraitPageClient)
-│   ├── globals.css                     # Global styles
+│   ├── layout.tsx                      # Root layout — fonts, metadata, Navbar, Footer, ChatWidget
+│   ├── page.tsx                        # / — Home (HeroSection + PortraitPageClient)
+│   ├── globals.css
 │   ├── generate/
-│   │   └── page.tsx                    # /generate — main portrait generation page
+│   │   └── page.tsx                    # /generate — portrait generation interface
 │   ├── gallery/
 │   │   └── page.tsx                    # /gallery — community portrait gallery
 │   └── figures/
@@ -38,31 +39,37 @@ frontend/
 │
 ├── components/
 │   ├── layout/
-│   │   ├── Navbar.tsx                  # Top navigation bar
-│   │   └── Footer.tsx                  # Footer
+│   │   ├── Navbar.tsx
+│   │   └── Footer.tsx
 │   ├── home/
-│   │   ├── HeroSection.tsx             # Landing hero section
-│   │   ├── HeroRight.tsx               # Right side of hero layout
-│   │   ├── PortraitCard.tsx            # Portrait display card
-│   │   ├── PortraitComposer.tsx        # Main generation UI (prompt, style, image reveal)
+│   │   ├── HeroSection.tsx
+│   │   ├── HeroLeft.tsx                # Headline, CTA, live stats, quick templates
+│   │   ├── HeroRight.tsx               # Live portrait card carousel
+│   │   ├── PortraitCard.tsx
+│   │   ├── PortraitComposer.tsx        # Core generation UI
 │   │   ├── PortraitPageClient.tsx      # Client bridge: template selection → composer state
-│   │   └── QuickStartTemplates.tsx     # One-click template cards
+│   │   └── QuickStartTemplates.tsx
+│   ├── figures/
+│   │   ├── FiguresGrid.tsx             # Searchable, filterable figures catalog
+│   │   └── FigureInfoPanel.tsx         # Slide-in panel with selected figure details
+│   ├── chat/
+│   │   └── ChatWidget.tsx              # Floating RAG chatbot — SSE streaming + session reset
 │   └── ui/
-│       ├── Button.tsx                  # Generic button
-│       ├── StyleButton.tsx             # Art style selector button
-│       └── LoadingSpinner.tsx          # Loading animation with shimmer
+│       ├── Button.tsx
+│       ├── StyleButton.tsx
+│       └── LoadingSpinner.tsx
 │
 ├── lib/
-│   └── constants.ts                    # STYLES, QUICK_START_TEMPLATES, HERO_PORTRAIT_CARDS, STATS
+│   └── constants.ts                    # STYLES, QUICK_START_TEMPLATES, HERO_PORTRAIT_CARDS
 │
 ├── types/
-│   └── index.ts                        # TypeScript interfaces (Style, Template, GenerateRequest, etc.)
+│   └── index.ts                        # TypeScript interfaces for all domain objects
 │
 ├── package.json
-├── tsconfig.json                       # TypeScript config with @ path alias
+├── tsconfig.json
 ├── tailwind.config.ts                  # Custom color theme and font families
 ├── postcss.config.mjs
-└── .env.local.example                  # Environment variable template
+└── .env.local.example
 ```
 
 ---
@@ -79,14 +86,11 @@ frontend/
 ```bash
 cd frontend
 
-# Install dependencies
 npm install
 
-# Configure environment
 cp .env.local.example .env.local
 # Edit .env.local if your backend runs on a different port
 
-# Start the development server
 npm run dev
 ```
 
@@ -106,14 +110,17 @@ App runs at `http://localhost:3000`.
 
 ### `/` — Home
 
-Landing page with a hero section and quick-start templates. Clicking a template prefills the composer and navigates to `/generate`.
+Landing page with a hero section, live stats (portraits created, unique figures, styles), and quick-start templates. Clicking a template prefills the composer and navigates to `/generate`.
 
 ### `/generate` — Portrait Generator
 
 The main generation interface. Users:
 1. Type a description of a historical figure and scene
 2. Select an art style (Renaissance, Anime, Sketch, Watercolor, Baroque)
-3. Click Generate — the portrait appears with a Framer Motion slide-up animation
+3. Toggle AI enhance on/off
+4. Click Generate — the portrait appears with a Framer Motion slide-up animation
+
+Accepts a `?figure=<slug>` query parameter to pre-fill the composer from the figures catalog.
 
 ### `/gallery` — Community Gallery
 
@@ -121,29 +128,34 @@ Paginated, browseable grid of all portraits generated by users. Supports filteri
 
 ### `/figures` — Historical Figures
 
-Catalog of pre-configured historical figures. Each card links directly to the generator with a prefilled prompt.
+Searchable, filterable catalog of historical figures with era, origin, tags, and year-range filters. Each card links directly to the generator with a prefilled prompt. Selecting a card opens a side panel with full figure details.
 
 ---
 
 ## Key Components
 
+### `ChatWidget`
+
+`components/chat/ChatWidget.tsx` — Floating chat panel, globally mounted in `layout.tsx` so it's available on every page.
+
+- Generates a stable `session_id` (UUID) on mount
+- Sends messages to `POST /api/chat` and reads the SSE token stream
+- Renders assistant responses via `react-markdown` (bold, lists, paragraphs)
+- Shows a gold blinking cursor while a response is streaming
+- **Reset button** (↺) in the header: calls `POST /api/chat/{session_id}/reset`, swaps to the returned `new_session_id`, and clears the message list — all without deleting DB records
+- Disabled state on reset button when no messages exist or a stream is in progress
+
 ### `PortraitComposer`
 
-The core generation UI (`components/home/PortraitComposer.tsx`). Handles:
-- Textarea input for the figure description
-- Style selection via `StyleButton` components
-- `POST /api/generate` request to the backend
-- Loading spinner with shimmer placeholder
-- Framer Motion image reveal (`opacity` + `scale` transition)
-- Inline error display
+`components/home/PortraitComposer.tsx` — Core generation UI. Handles textarea input, style selection, `POST /api/generate`, loading shimmer, and Framer Motion image reveal.
+
+### `FiguresGrid`
+
+`components/figures/FiguresGrid.tsx` — Full-featured figures browser with live filter dropdowns populated from `/api/figures/meta`, client-side search, and pagination.
 
 ### `PortraitPageClient`
 
-A thin client-side bridge (`components/home/PortraitPageClient.tsx`) that receives a selected template from `QuickStartTemplates` and passes it as initial state into `PortraitComposer`. Keeps template logic out of server components.
-
-### `QuickStartTemplates`
-
-Pre-configured prompts (`lib/constants.ts`) for Napoleon, Cleopatra, Einstein, Genghis Khan, and Marie Curie. One click populates the composer and starts generation.
+`components/home/PortraitPageClient.tsx` — Thin client bridge that receives a selected template from `QuickStartTemplates` and passes it as initial state into `PortraitComposer`. Keeps template selection logic out of server components.
 
 ---
 
@@ -160,13 +172,15 @@ npm run lint      # ESLint
 
 ## Customization
 
-**Add art styles** — Edit the `STYLES` array in `lib/constants.ts`. Each style needs an `id`, `label`, and optional `description`.
+**Add art styles** — Edit the `STYLES` array in `lib/constants.ts`.
 
 **Add quick-start templates** — Edit `QUICK_START_TEMPLATES` in `lib/constants.ts`.
 
-**Add historical figures** — Edit the `FIGURES` array in `app/figures/page.tsx`.
+**Add historical figures** — Use `POST /api/figures` or run the backend seed script. The figures catalog and chatbot FAISS index update automatically.
 
-**Change the color theme** — Edit `tailwind.config.ts`. The custom palette (`cream`, `dark`, `gold`, `parchment`, `cyan`) is defined under `theme.extend.colors`.
+**Tune chatbot rules** — The system prompt lives in `backend/services/chatbot.py` (`_SYSTEM_TEMPLATE`). No frontend changes needed.
+
+**Change the color theme** — Edit `tailwind.config.ts`. Custom palette: `cream`, `dark`, `gold`, `parchment`.
 
 **Change fonts** — Edit the `next/font/google` imports in `app/layout.tsx`.
 
