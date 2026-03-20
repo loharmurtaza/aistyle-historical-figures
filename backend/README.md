@@ -1,22 +1,24 @@
 # ChronoCanvasAI — Backend
 
-FastAPI backend for AI-powered historical portrait generation. Orchestrates prompt enhancement with GPT-4o-mini and image generation with DALL·E 3 through a LangGraph pipeline.
+FastAPI backend for AI-powered historical portrait generation and a RAG chatbot grounded in the figures catalog. Orchestrates prompt enhancement with GPT-4o-mini, image generation with DALL·E 3 through a LangGraph pipeline, and streaming chat responses via FAISS retrieval.
 
 ---
 
 ## Tech Stack
 
-| Technology          | Version | Purpose                             |
-|---------------------|---------|-------------------------------------|
-| FastAPI             | 0.111.0 | Async REST API framework            |
-| LangChain           | 0.2.6   | LLM chain orchestration             |
-| LangGraph           | 0.1.19  | Multi-step generation workflow      |  
-| langchain-openai    | 0.1.13  | GPT-4o-mini + DALL·E 3 wrappers     |
-| SQLAlchemy          | 2.0.31  | Async ORM for portrait persistence  |
-| SQLite + aiosqlite  | —       | Local database                      |
-| slowapi             | 0.1.9   | Rate limiting (10 req/min per IP)   |
-| Uvicorn             | 0.30.1  | ASGI server                         |
-| Pydantic            | v2      | Request/response validation         |
+| Technology           | Version | Purpose                                        |
+|----------------------|---------|------------------------------------------------|
+| FastAPI              | 0.111.0 | Async REST API + SSE streaming                 |
+| LangChain            | 0.2.6   | LLM chain orchestration + RAG chat             |
+| LangGraph            | 0.1.19  | Multi-step generation workflow                 |
+| langchain-openai     | 0.1.13  | GPT-4o-mini, DALL·E 3, embeddings wrappers     |
+| langchain-core       | 0.2.22  | Base chain primitives                          |
+| faiss-cpu            | 1.8.0   | In-memory vector similarity search             |
+| SQLAlchemy           | 2.0.31  | ORM for portrait, figures, and chat tables     |
+| SQLite + aiosqlite   | —       | Local database                                 |
+| slowapi              | 0.1.9   | Rate limiting (10 req/min per IP)              |
+| Uvicorn              | 0.30.1  | ASGI server                                    |
+| Pydantic             | v2      | Request/response validation                    |
 
 ---
 
@@ -25,30 +27,43 @@ FastAPI backend for AI-powered historical portrait generation. Orchestrates prom
 ```
 backend/
 ├── main.py                     # FastAPI app, CORS, rate limiting, lifespan
-├── config.py                   # Environment variable loader (pydantic-settings)
-├── database.py                 # SQLAlchemy async engine + session factory
-├── llm.py                      # OpenAI LLM instance configuration
+├── config.py                   # Typed env var loader (str/int/float/bool getters)
+├── database.py                 # SQLAlchemy engine, SessionLocal, get_db() dependency
+├── llm.py                      # Shared ChatOpenAI instance
 ├── logger.py                   # Logging setup
 ├── rate_limit.py               # slowapi limiter instance
 ├── requirements.txt
-├── .env.example                # Environment variable template
+├── .env.example
 ├── pytest.ini
 │
 ├── models/
-│   ├── portrait.py             # Portrait ORM model (SQLAlchemy) — stores image bytes
-│   └── schemas.py              # Pydantic schemas (requests + responses)
+│   ├── portrait.py             # ORM — portraits table (stores image bytes as BLOB)
+│   ├── figure.py               # ORM — figures table (catalog data)
+│   ├── style.py                # ORM — styles table
+│   ├── chat.py                 # ORM — chat_sessions + chat_messages tables
+│   └── schemas.py              # Pydantic v2 schemas (requests + responses)
 │
 ├── routers/
 │   ├── health.py               # GET /api/health
 │   ├── generate.py             # POST /api/generate
 │   ├── enhance_prompt.py       # POST /api/enhance-prompt
-│   ├── gallery.py              # GET/DELETE /api/gallery + featured + image endpoints
-│   └── styles.py               # GET /api/styles
+│   ├── gallery.py              # GET|DELETE /api/gallery/**
+│   ├── styles.py               # GET /api/styles
+│   ├── figures.py              # GET|POST /api/figures + /meta + /{slug}
+│   ├── stats.py                # GET /api/stats
+│   └── chatbot.py              # POST /api/chat (SSE) + POST /api/chat/{id}/reset
 │
-└── services/
-    ├── image_generator.py      # LangGraph pipeline (enhance → generate → sanitize/soften → retry)
-    ├── prompt_builder.py       # GPT-4o-mini prompt chains + sanitize chain
-    └── gallery.py              # Database CRUD for portraits
+├── services/
+│   ├── image_generator.py      # LangGraph pipeline: enhance → generate → sanitize/retry
+│   ├── prompt_builder.py       # GPT-4o-mini LCEL chains
+│   ├── gallery.py              # DB CRUD for portraits
+│   ├── figures_index.py        # FAISS vector index — build, TTL refresh, invalidation
+│   └── chatbot.py              # RAG chat: retrieve → stream → persist to DB
+│
+└── scripts/
+    ├── seed_figures.py         # CLI: bulk-import figures from JSON
+    ├── seed_styles.py          # CLI: seed styles table
+    └── figures_data.json       # Source data for figure seeding
 ```
 
 ---
@@ -58,214 +73,285 @@ backend/
 ### Prerequisites
 
 - Python 3.11+
-- An OpenAI API key with access to GPT-4o-mini and DALL·E 3
+- An OpenAI API key with access to GPT-4o-mini, DALL·E 3, and text-embedding-3-small
 
 ### Setup
 
 ```bash
 cd backend
 
-# Create and activate virtual environment
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 
-# Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
 cp .env.example .env
-# Edit .env and fill in your values (see Environment Variables below)
+# Edit .env — OPENAI_API_KEY is required; all other vars have sensible defaults
 
-# Start the server
 uvicorn main:app --reload --port 3001
 ```
 
 Server runs at `http://localhost:3001`.
 
+On first startup the app will:
+1. Create all database tables
+2. Build the FAISS index by embedding all figures (requires OpenAI call)
+3. Verify OpenAI connectivity
+
 ---
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and set the following:
-
-| Variable            | Required  | Default                   | Description                   |
-|---------------------|-----------|---------------------------|-------------------------------|
-| `OPENAI_API_KEY`    | Yes       | —                         | OpenAI API key                |
-| `PORT`              | No        | `3001`                    | Server port                   |
-| `FRONTEND_URL`      | No        | `http://localhost:3000`   | Allowed CORS origin           |
-| `LOG_LEVEL`         | No        | `INFO`                    | Logging level                 | 
-| `OPENAI_MODEL`      | No        | `gpt-4o-mini`             | Model for prompt enhancement  |
-| `LANGCHAIN_API_KEY` | No        | —                         | LangSmith tracing (optional)  |
+| Variable                    | Required | Default                   | Description                        |
+|-----------------------------|----------|---------------------------|------------------------------------|
+| `OPENAI_API_KEY`            | Yes      | —                         | OpenAI API key                     |
+| `PORT`                      | No       | `3001`                    | Server port                        |
+| `FRONTEND_URL`              | No       | `http://localhost:3000`   | Allowed CORS origin                |
+| `LOG_LEVEL`                 | No       | `INFO`                    | Logging level                      |
+| `OPENAI_PROMPT_MODEL`       | No       | `gpt-4o-mini`             | Model for prompt enhancement + chat|
+| `OPENAI_PROMPT_TEMPERATURE` | No       | `0.8`                     | Temperature for prompt chains      |
+| `OPENAI_PROMPT_MAX_RETRIES` | No       | `2`                       | LLM retry attempts                 |
+| `OPENAI_IMAGE_MODEL`        | No       | `dall-e-3`                | Image generation model             |
+| `IMAGE_SIZE`                | No       | `1024x1024`               | DALL·E output resolution           |
+| `OPENAI_EMBEDDING_MODEL`    | No       | `text-embedding-3-small`  | Embedding model for FAISS index    |
+| `CHATBOT_RETRIEVAL_K`       | No       | `5`                       | Top-k figures returned per query   |
+| `CHATBOT_INDEX_TTL`         | No       | `300`                     | Seconds before FAISS auto-refresh  |
+| `GENERATE_RATE_LIMIT`       | No       | `10/minute`               | slowapi rule for /api/generate     |
+| `LANGCHAIN_TRACING_V2`      | No       | `false`                   | Enable LangSmith tracing           |
+| `LANGCHAIN_API_KEY`         | No       | —                         | LangSmith API key                  |
+| `LANGCHAIN_PROJECT`         | No       | `chronocanvasai`          | LangSmith project name             |
 
 ---
 
 ## API Reference
 
-### `POST /api/generate`
+### Portrait Generation
 
-Generates a portrait for a historical figure in a given art style.
+#### `POST /api/generate`
 
-Rate limited to **10 requests per minute per IP**.
+Generate a portrait for a historical figure. Rate limited to **10 requests per minute per IP**.
 
 **Request**
 ```json
 {
   "figure": "Napoleon Bonaparte standing on a misty battlefield",
   "style": "renaissance",
-  "session_id": "optional-session-id"
+  "user_prompt": "make the lighting dramatic",
+  "session_id": "optional-uuid",
+  "enhance": true
 }
 ```
 
 **Response**
 ```json
 {
-  "imageUrl": "https://oaidalleapiprodscus.blob.core.windows.net/...",
-  "revisedPrompt": "A detailed oil painting in the Renaissance style..."
+  "image_url": "/api/gallery/42/image",
+  "revised_prompt": "...",
+  "enhanced_prompt": "A detailed oil painting...",
+  "figure": "Napoleon Bonaparte",
+  "figure_title": "Napoleon Bonaparte",
+  "style": "renaissance"
 }
 ```
 
 ---
 
-### `POST /api/enhance-prompt`
+#### `POST /api/enhance-prompt`
 
-Returns an enhanced version of the user's prompt without generating an image. Useful for previewing what GPT-4o-mini produces.
+Preview the enhanced prompt without generating an image.
 
 **Request**
 ```json
-{
-  "figure": "Cleopatra in her palace",
-  "style": "watercolor",
-  "session_id": "optional-session-id"
-}
+{ "figure": "Cleopatra", "style": "watercolor", "user_prompt": "optional" }
 ```
 
 **Response**
 ```json
-{
-  "enhancedPrompt": "Cleopatra VII seated on her gilded throne..."
-}
+{ "enhanced_prompt": "Cleopatra VII...", "figure": "Cleopatra", "style": "watercolor" }
 ```
 
 ---
 
-### `GET /api/gallery`
+### Gallery
 
-Returns paginated list of saved portraits.
+#### `GET /api/gallery`
 
-**Query Parameters**
+Paginated portrait list.
 
-| Param       | Type    | Default | Description             |
-|-------------|---------|-------  |-------------------------|
-| `page`      | int     | `1`     | Page number             |
-| `page_size` | int     | `12`    | Items per page (max 50) |
-| `style`     | string  | —       | Filter by art style     |
+| Param       | Type   | Default | Description              |
+|-------------|--------|---------|--------------------------|
+| `page`      | int    | `1`     | Page number              |
+| `page_size` | int    | `12`    | Items per page (max 50)  |
+| `style`     | string | —       | Filter by art style      |
+
+#### `GET /api/gallery/featured`
+
+Latest portrait ID per figure name.
+
+| Param     | Type   | Description                                 |
+|-----------|--------|---------------------------------------------|
+| `figures` | string | Comma-separated names, e.g. `Cleopatra,Tesla`|
+
+#### `GET /api/gallery/{id}/image`
+
+Serves PNG bytes from the database (not from expiring DALL·E CDN URLs).
+
+#### `DELETE /api/gallery/{id}`
+
+Delete a portrait by ID.
+
+---
+
+### Figures Catalog
+
+#### `GET /api/figures`
+
+Paginated figures list with filters.
+
+| Param       | Type   | Description                        |
+|-------------|--------|------------------------------------|
+| `page`      | int    | Page number (default 1)            |
+| `page_size` | int    | Per page (default 20, max 100)     |
+| `era`       | string | Filter by era                      |
+| `origin`    | string | Filter by origin                   |
+| `tags`      | string | Filter by tag (partial match)      |
+| `search`    | string | Full-text search on name           |
+| `featured`  | bool   | Show featured figures only         |
+| `born_min`  | int    | Min birth year                     |
+| `born_max`  | int    | Max birth year                     |
+
+#### `GET /api/figures/meta`
+
+Returns distinct values for filter dropdowns.
+
+```json
+{ "eras": ["Ancient", "Medieval", ...], "origins": ["Egypt", ...], "tags": ["philosopher", ...] }
+```
+
+#### `GET /api/figures/{slug}`
+
+Single figure by URL slug.
+
+#### `POST /api/figures`
+
+Create a new figure. Also invalidates the FAISS index so the chatbot reflects the new figure immediately.
+
+---
+
+### Stats
+
+#### `GET /api/stats`
+
+```json
+{ "portraits_created": 142, "unique_figures": 58, "styles_available": 5 }
+```
+
+---
+
+### Chatbot
+
+#### `POST /api/chat`
+
+Streaming SSE endpoint. Loads session history from DB, runs FAISS retrieval, streams GPT-4o-mini response, persists the exchange.
+
+**Request**
+```json
+{ "message": "Who was Cleopatra?", "session_id": "optional-uuid" }
+```
+
+**SSE event stream**
+```
+data: {"token": "Cleo"}
+data: {"token": "patra"}
+...
+data: [DONE]
+```
+
+#### `POST /api/chat/{session_id}/reset`
+
+Stamps the current session's `last_active` and creates a fresh `ChatSession` row. Existing messages are **retained** in the DB for analytics.
 
 **Response**
 ```json
-{
-  "items": [
-    {
-      "id": 1,
-      "figure": "Napoleon Bonaparte",
-      "style": "renaissance",
-      "imageUrl": "https://...",
-      "originalPrompt": "...",
-      "enhancedPrompt": "...",
-      "createdAt": "2024-01-01T12:00:00Z"
-    }
-  ],
-  "total": 42,
-  "page": 1,
-  "page_size": 12
-}
+{ "new_session_id": "550e8400-e29b-41d4-a716-446655440000" }
 ```
 
 ---
 
-### `GET /api/gallery/featured`
+### Health
 
-Returns the latest portrait ID for each of the provided figure names. Used by the home page hero section to display real generated images.
+#### `GET /api/health`
 
-**Query Parameters**
-
-| Param     | Type    | Description                                                         |
-|-----------|---------|---------------------------------------------------------------------|
-| `figures` | string  | Comma-separated figure names to search (e.g. `Cleopatra,Da Vinci`)  |
-
-**Response**
-```json
-[
-  { "search_term": "Cleopatra", "id": 12 },
-  { "search_term": "Da Vinci", "id": null }
-]
-```
-
----
-
-### `GET /api/gallery/{id}`
-
-Returns a single portrait's metadata by ID.
-
----
-
-### `GET /api/gallery/{id}/image`
-
-Serves the stored PNG image bytes directly from the database. Used by the frontend instead of the original DALL·E CDN URL (which expires).
-
----
-
-### `DELETE /api/gallery/{id}`
-
-Deletes a portrait by ID.
-
----
-
-### `GET /api/styles`
-
-Returns the list of available art styles.
-
----
-
-### `GET /api/health`
-
-Health check endpoint.
+Returns OpenAI connectivity status.
 
 ---
 
 ## Generation Pipeline
 
-The core logic lives in `services/image_generator.py` as a **LangGraph** state machine:
+The core logic in `services/image_generator.py` is a LangGraph state machine:
 
 ```
 extract_figure_and_style
       ↓
 enhance_prompt  (or format_prompt when enhance=False)
       ↓
-generate_image
-      ↓ (on content policy violation)
-sanitize_figure_description → enhance_prompt → generate_image (retry once)
-      ↓
+generate_image  (DALL·E 3)
+      ↓ (on content policy violation, attempt < 2)
+sanitize_figure_description → enhance_prompt → generate_image (retry)
+      ↓ (success)
 download image bytes from CDN
       ↓
 save portrait + image_data to gallery.db
 ```
 
-1. **extract** — GPT-4o-mini parses the raw input into a clean figure title and resolved art style.
-2. **enhance_prompt** — Builds a vivid DALL·E 3 prompt with historical context and style-specific language. When `enhance=false`, uses `format_prompt` instead (preserves user intent, no creative additions).
-3. **generate_image** — Sends the enhanced prompt to DALL·E 3 via `DallEAPIWrapper`.
-4. **sanitize + soften** — If DALL·E rejects the prompt on content policy grounds, `sanitize_figure_description` rewrites the scene description to remove combat/conflict language (e.g. "fighting" → "facing"), then re-enhances and retries once. Respects the `enhance` flag — uses `format_prompt` if enhancement was disabled.
-5. **image download** — After a successful generation the image is downloaded from the CDN and stored as binary in the `image_data` column, so the gallery never depends on expiring CDN URLs.
-
-Every successful generation is auto-saved to `gallery.db` via `services/gallery.py`.
+1. **extract** — GPT-4o-mini parses raw input into `figure_title` + `resolved_style` using structured output.
+2. **enhance_prompt** — Builds a vivid DALL·E prompt. Uses `enhance_prompt_with_history` (session-aware via `RunnableWithMessageHistory`) when a `session_id` is provided; `format_prompt` when `enhance=false`.
+3. **generate_image** — Sends the prompt to DALL·E 3.
+4. **sanitize** — If DALL·E rejects on content policy, rewrites conflict/violence language as peaceful alternatives, then retries once.
+5. **download** — Stores image bytes in the `image_data` column so the gallery never depends on expiring CDN URLs.
 
 ---
 
-## Session-Aware Prompt History
+## RAG Chatbot
 
-`prompt_builder.py` exposes two chains:
+### FAISS Index (`services/figures_index.py`)
 
-- `enhance_prompt(figure, style)` — Stateless, single-turn enhancement.
-- `enhance_prompt_with_history(figure, style, session_id)` — History-aware chain using `RunnableWithMessageHistory`. Allows users to reference previous generations within a session (e.g., "same pose but baroque style").
+- Embeds all figures at startup using `text-embedding-3-small` in one batched call
+- Stored in RAM; rebuilt on TTL expiry (background task) or immediately on `invalidate()` after a figure is created
+- Also computes a catalog summary string (total figures, list of eras, origins, top tags) used as global context
+
+### Chat flow (`services/chatbot.py`)
+
+1. Open DB session → ensure `ChatSession` exists → load `ChatMessage` history → close session
+2. Embed user message → FAISS `similarity_search` → top-k figure documents
+3. Build system prompt: catalog summary block + RAG context block + strict rules
+4. Stream response from GPT-4o-mini; yield each token
+5. After stream: open DB session → write user row + assistant row (with all metrics) → bump `last_active` → close session
+
+### DB schema
+
+**`chat_sessions`** — one row per session
+
+| Column       | Type     |
+|--------------|----------|
+| `session_id` | String   |
+| `created_at` | DateTime |
+| `last_active`| DateTime |
+
+**`chat_messages`** — one row per turn
+
+| Column              | Type     | Notes                          |
+|---------------------|----------|--------------------------------|
+| `session_id`        | String   | Indexed                        |
+| `role`              | String   | `'user'` or `'assistant'`      |
+| `content`           | Text     |                                |
+| `prompt_tokens`     | Integer  | Assistant rows only            |
+| `completion_tokens` | Integer  | Assistant rows only            |
+| `total_tokens`      | Integer  | Assistant rows only            |
+| `retrieval_ms`      | Float    | FAISS search duration          |
+| `first_token_ms`    | Float    | Time to first token            |
+| `total_ms`          | Float    | Full round-trip                |
+| `docs_retrieved`    | Integer  | FAISS hits used as context     |
 
 ---
 
@@ -281,10 +367,18 @@ Test configuration is in `pytest.ini`. Tests use `pytest-asyncio` for async endp
 
 ## Customization
 
-**Change the prompt enhancement model** — Set `OPENAI_MODEL` in `.env`.
+**Tune the chatbot system prompt** — Edit `_SYSTEM_TEMPLATE` in `services/chatbot.py`.
 
-**Tune the enhancement prompt** — Edit the `ChatPromptTemplate` in `services/prompt_builder.py`.
+**Change retrieval depth** — Set `CHATBOT_RETRIEVAL_K` in `.env`.
 
-**Add new art styles** — The backend accepts any style string; styles are defined on the frontend in `frontend/lib/constants.ts`.
+**Change the FAISS refresh interval** — Set `CHATBOT_INDEX_TTL` in `.env`.
+
+**Tune the portrait enhancement prompt** — Edit `services/prompt_builder.py`.
+
+**Change the LLM model** — Set `OPENAI_PROMPT_MODEL` in `.env`.
+
+**Add art styles** — Insert rows into the `styles` table or re-run `scripts/seed_styles.py`.
+
+**Add historical figures** — Edit `scripts/figures_data.json` and run `seed_figures.py`. Alternatively `POST /api/figures` — the FAISS index is invalidated automatically.
 
 **Adjust rate limits** — Edit the decorator on the generate route in `routers/generate.py`.
